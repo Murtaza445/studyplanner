@@ -5,8 +5,11 @@ import { Schedule } from "@/lib/types";
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  context: any
 ) {
+  // `params` may be a Promise in some Next.js runtimes; await to unwrap.
+  const rawParams = context?.params;
+  const { id } = rawParams ? (await rawParams) : { id: undefined };
   try {
     const session = await getSession();
     if (!session?.user?.id) {
@@ -26,7 +29,7 @@ export async function GET(
     const { resources } = await container.items
       .query({
         query: "SELECT * FROM c WHERE c.id = @id",
-        parameters: [{ name: "@id", value: params.id }],
+        parameters: [{ name: "@id", value: id }],
       })
       .fetchAll();
 
@@ -61,8 +64,10 @@ export async function GET(
 
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  context: any
 ) {
+  const rawParams = context?.params;
+  const { id } = rawParams ? (await rawParams) : { id: undefined };
   try {
     const session = await getSession();
     if (!session?.user?.id) {
@@ -74,7 +79,7 @@ export async function PUT(
     const { resources } = await container.items
       .query({
         query: "SELECT * FROM c WHERE c.id = @id",
-        parameters: [{ name: "@id", value: params.id }],
+        parameters: [{ name: "@id", value: id }],
       })
       .fetchAll();
     
@@ -95,7 +100,7 @@ export async function PUT(
     const updatedSchedule: Schedule = {
       ...existingSchedule,
       ...body,
-      id: params.id,
+      id: id,
       userId: session.user.id,
       updatedAt: new Date().toISOString(),
     };
@@ -114,8 +119,10 @@ export async function PUT(
 
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  context: any
 ) {
+  const rawParams = context?.params;
+  const { id } = rawParams ? (await rawParams) : { id: undefined };
   try {
     const session = await getSession();
     if (!session?.user?.id) {
@@ -127,7 +134,7 @@ export async function DELETE(
     const { resources } = await container.items
       .query({
         query: "SELECT * FROM c WHERE c.id = @id",
-        parameters: [{ name: "@id", value: params.id }],
+        parameters: [{ name: "@id", value: id }],
       })
       .fetchAll();
     
@@ -144,7 +151,7 @@ export async function DELETE(
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    await container.item(params.id, existingSchedule.userId).delete();
+    await container.item(id, existingSchedule.userId).delete();
 
     return NextResponse.json({ success: true });
   } catch (error: any) {
