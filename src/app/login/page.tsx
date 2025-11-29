@@ -11,6 +11,7 @@ export default function LoginPage() {
   const router = useRouter();
   const [email, setEmail] = useState("demo@example.com");
   const [isDevMode, setIsDevMode] = useState(true); // Default to true for easier testing
+  const [azureAvailable, setAzureAvailable] = useState<boolean | null>(null);
 
   useEffect(() => {
     if (status === "authenticated") {
@@ -21,6 +22,24 @@ export default function LoginPage() {
   const handleSignIn = () => {
     signIn("azure-ad", { callbackUrl: "/dashboard" });
   };
+
+  useEffect(() => {
+    // Check NextAuth providers endpoint to see if Azure AD is configured
+    const checkProviders = async () => {
+      try {
+        const res = await fetch('/api/auth/providers');
+        if (!res.ok) {
+          setAzureAvailable(false);
+          return;
+        }
+        const data = await res.json();
+        setAzureAvailable(Boolean(data && data['azure-ad']));
+      } catch (err) {
+        setAzureAvailable(false);
+      }
+    };
+    checkProviders();
+  }, []);
 
   const handleDevSignIn = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -81,13 +100,20 @@ export default function LoginPage() {
             </p>
           </div>
 
-          {/* Azure AD Login */}
-          {!isDevMode && (
+          {/* Azure AD Login - always visible, enable only if provider present */}
+          <div className="mb-4">
             <Button
-              onClick={handleSignIn}
+              onClick={() => {
+                if (azureAvailable === false) {
+                  alert('Azure AD provider not configured. Please set AZURE_AD_CLIENT_ID, AZURE_AD_CLIENT_SECRET and AZURE_AD_TENANT_ID in your environment (see README).');
+                  return;
+                }
+                handleSignIn();
+              }}
               variant="primary"
               size="lg"
-              className="w-full"
+              className="w-full mb-2"
+              disabled={azureAvailable === false}
             >
               <svg
                 className="w-5 h-5 mr-2"
@@ -114,7 +140,13 @@ export default function LoginPage() {
               </svg>
               Sign in with Microsoft
             </Button>
-          )}
+            {azureAvailable === null && (
+              <p className="text-xs text-gray-500">Checking Microsoft sign-in availability...</p>
+            )}
+            {azureAvailable === false && (
+              <p className="text-xs text-red-600">Microsoft sign-in not configured locally. See README for setup instructions.</p>
+            )}
+          </div>
 
           {/* Dev Mode Login - Show if Azure AD not configured */}
           <div>
