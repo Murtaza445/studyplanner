@@ -3,9 +3,21 @@ import { getSession } from "@/lib/auth";
 import { getContainer } from "@/lib/cosmosClient";
 import { getBlobServiceClient } from "@/lib/blobSas";
 
-export async function DELETE(request: NextRequest, { params }: { params: { id: string } }) {
+export async function DELETE(request: NextRequest, context: { params?: any }) {
   try {
-    console.log("DELETE /api/resources/:id called, params=", params, "nextUrl=", request.nextUrl?.pathname || request.url);
+    // Support both sync params and a Promise-like params (some Next build-time types use Promise<{id}>)
+    const rawParams = context?.params;
+    const params = rawParams && typeof (rawParams as any).then === "function"
+      ? await rawParams
+      : rawParams;
+
+    console.log(
+      "DELETE /api/resources/:id called, params=",
+      params,
+      "nextUrl=",
+      request.nextUrl?.pathname || request.url
+    );
+
     const session = await getSession();
     if (!session?.user?.id) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -22,8 +34,18 @@ export async function DELETE(request: NextRequest, { params }: { params: { id: s
       }
     }
     if (!resourceId) {
-      console.error("DELETE /api/resources - missing resourceId", { params, pathname: request.nextUrl?.pathname, url: request.url });
-      return NextResponse.json({ error: "Resource id is required", received: { params, pathname: request.nextUrl?.pathname, url: request.url } }, { status: 400 });
+      console.error("DELETE /api/resources - missing resourceId", {
+        params,
+        pathname: request.nextUrl?.pathname,
+        url: request.url,
+      });
+      return NextResponse.json(
+        {
+          error: "Resource id is required",
+          received: { params, pathname: request.nextUrl?.pathname, url: request.url },
+        },
+        { status: 400 }
+      );
     }
 
     // If Cosmos is not configured, return not found (demo mode)
