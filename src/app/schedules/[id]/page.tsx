@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { AppLayout } from "@/components/layout/AppLayout";
@@ -12,7 +12,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { format, parseISO } from "date-fns";
-import { CheckCircle2, FileText, Upload, Trash2 } from "lucide-react";
+import { CheckCircle2, FileText, Upload, Trash2, Download } from "lucide-react";
 import Link from "next/link";
 
 const scheduleSchema = z.object({
@@ -33,6 +33,7 @@ export default function ScheduleDetailPage() {
   const [isEditing, setIsEditing] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const {
     register,
@@ -47,6 +48,7 @@ export default function ScheduleDetailPage() {
     if (params.id) {
       fetchSchedule();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [params.id]);
 
   const fetchSchedule = async () => {
@@ -119,11 +121,18 @@ export default function ScheduleDetailPage() {
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file || !schedule?.id) return;
+    // reset input so same file can be selected again later
+    if (fileInputRef.current) fileInputRef.current.value = "";
+
+    if (!file || !schedule?.id) {
+      alert("Please select a file and ensure schedule is loaded.");
+      return;
+    }
 
     try {
       setIsUploading(true);
-      // Get SAS URL
+
+      // 1. get SAS url from server
       const sasResponse = await apiClient.get("/upload/sas", {
         params: {
           fileName: file.name,
@@ -131,21 +140,27 @@ export default function ScheduleDetailPage() {
         },
       });
 
-      // Upload to blob storage
+      if (!sasResponse?.data?.sasUrl) {
+        const serverMsg = sasResponse?.data?.error || JSON.stringify(sasResponse?.data || {});
+        throw new Error(`Invalid SAS response: ${serverMsg}`);
+      }
+
+      // 2. upload to blob storage using SAS URL
       const uploadResponse = await fetch(sasResponse.data.sasUrl, {
         method: "PUT",
         body: file,
         headers: {
           "x-ms-blob-type": "BlockBlob",
-          "Content-Type": file.type,
+          "Content-Type": file.type || "application/octet-stream",
         },
       });
 
       if (!uploadResponse.ok) {
-        throw new Error("Upload failed");
+        const text = await uploadResponse.text().catch(() => "(no body)");
+        throw new Error(`Upload failed: ${uploadResponse.status} ${text}`);
       }
 
-      // Save metadata
+      // 3. notify server to finish and save metadata
       await apiClient.post("/upload/finish", {
         scheduleId: schedule.id,
         fileName: file.name,
@@ -155,18 +170,80 @@ export default function ScheduleDetailPage() {
       });
 
       await fetchSchedule();
-    } catch (error) {
+      alert("File uploaded successfully!");
+    } catch (error: any) {
       console.error("Error uploading file:", error);
-      alert("Failed to upload file");
+
+      let userMessage = "Failed to upload file";
+      if (error?.response?.data) {
+        try {
+          const data = error.response.data;
+          userMessage = data.error || data.message || JSON.stringify(data);
+        } catch (_) {
+          userMessage = String(error.message || userMessage);
+        }
+      } else if (error?.message) {
+        userMessage = error.message;
+      }
+
+      alert(`Failed to upload file: ${userMessage}`);
     } finally {
       setIsUploading(false);
     }
   };
 
+  const openFilePicker = () => {
+    if (isUploading) return;
+    fileInputRef.current?.click();
+  };
+
   const handleDeleteResource = async (resourceId: string) => {
     if (!confirm("Are you sure you want to delete this resource?")) return;
-    // Implement delete resource API call
-    await fetchSchedule();
+
+    try {
+      const resp = await apiClient.delete(`/resources/${resourceId}`);
+      console.log("Delete resource response:", resp?.data);
+      await fetchSchedule();
+      alert("File deleted");
+    } catch (error: any) {
+      console.error("Error deleting resource:", error);
+      await fetchSchedule();
+
+      let msg = "Failed to delete file";
+      if (error?.response) {
+        const status = error.response.status;
+        const data = error.response.data;
+        msg = `Delete failed: ${status} - ${JSON.stringify(data)}`;
+      } else if (error?.message) {
+        msg = error.message;
+      }
+
+      alert(msg);
+    }
+  };
+
+  const handleDownload = async (resource: Resource) => {
+    try {
+      const resp = await apiClient.get("/upload/read-sas", {
+        params: {
+          fileUrl: resource.fileUrl,
+          scheduleId: schedule?.id,
+        },
+      });
+
+      if (!resp?.data?.sasUrl) {
+        alert("Failed to get download URL");
+        return;
+      }
+
+      window.open(resp.data.sasUrl, "_blank");
+    } catch (error: any) {
+      console.error("Error getting read SAS:", error);
+      let msg = "Failed to get download URL";
+      if (error?.response?.data?.error) msg = error.response.data.error;
+      else if (error?.message) msg = error.message;
+      alert(msg);
+    }
   };
 
   if (loading) {
@@ -256,9 +333,7 @@ export default function ScheduleDetailPage() {
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                   />
                   {errors.title && (
-                    <p className="mt-1 text-sm text-red-600">
-                      {errors.title.message}
-                    </p>
+                    <p className="mt-1 text-sm text-red-600">{errors.title.message}</p>
                   )}
                 </div>
 
@@ -272,9 +347,7 @@ export default function ScheduleDetailPage() {
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                   />
                   {errors.description && (
-                    <p className="mt-1 text-sm text-red-600">
-                      {errors.description.message}
-                    </p>
+                    <p className="mt-1 text-sm text-red-600">{errors.description.message}</p>
                   )}
                 </div>
 
@@ -302,11 +375,7 @@ export default function ScheduleDetailPage() {
                 </div>
 
                 <div className="flex gap-4">
-                  <Button
-                    type="submit"
-                    variant="primary"
-                    isLoading={isSubmitting}
-                  >
+                  <Button type="submit" variant="primary" isLoading={isSubmitting}>
                     Save Changes
                   </Button>
                   <Button
@@ -324,27 +393,17 @@ export default function ScheduleDetailPage() {
             ) : (
               <div className="space-y-4">
                 <div>
-                  <h3 className="text-sm font-medium text-gray-500 mb-1">
-                    Description
-                  </h3>
+                  <h3 className="text-sm font-medium text-gray-500 mb-1">Description</h3>
                   <p className="text-gray-900">{schedule.description}</p>
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <h3 className="text-sm font-medium text-gray-500 mb-1">
-                      Start Date
-                    </h3>
-                    <p className="text-gray-900">
-                      {format(parseISO(schedule.startDate), "MMMM d, yyyy")}
-                    </p>
+                    <h3 className="text-sm font-medium text-gray-500 mb-1">Start Date</h3>
+                    <p className="text-gray-900">{format(parseISO(schedule.startDate), "MMMM d, yyyy")}</p>
                   </div>
                   <div>
-                    <h3 className="text-sm font-medium text-gray-500 mb-1">
-                      End Date
-                    </h3>
-                    <p className="text-gray-900">
-                      {format(parseISO(schedule.endDate), "MMMM d, yyyy")}
-                    </p>
+                    <h3 className="text-sm font-medium text-gray-500 mb-1">End Date</h3>
+                    <p className="text-gray-900">{format(parseISO(schedule.endDate), "MMMM d, yyyy")}</p>
                   </div>
                 </div>
               </div>
@@ -357,31 +416,31 @@ export default function ScheduleDetailPage() {
           <CardHeader>
             <div className="flex items-center justify-between">
               <CardTitle>Resources</CardTitle>
-              <label className="cursor-pointer inline-block">
+              <div>
                 <input
+                  ref={fileInputRef}
                   type="file"
                   className="hidden"
                   onChange={handleFileUpload}
                   disabled={isUploading}
                 />
-                <span className="inline-block">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    type="button"
-                    isLoading={isUploading}
-                  >
-                    <Upload size={18} className="mr-2" />
-                    Upload File
-                  </Button>
-                </span>
-              </label>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  type="button"
+                  isLoading={isUploading}
+                  onClick={openFilePicker}
+                >
+                  <Upload size={18} className="mr-2" />
+                  Upload File
+                </Button>
+              </div>
             </div>
           </CardHeader>
           <CardContent>
             {schedule.resources && schedule.resources.length > 0 ? (
               <div className="space-y-2">
-                {schedule.resources.map((resource) => (
+                {schedule.resources.map((resource: Resource) => (
                   <div
                     key={resource.id}
                     className="flex items-center justify-between p-3 border border-gray-200 rounded-lg hover:bg-gray-50"
@@ -389,30 +448,18 @@ export default function ScheduleDetailPage() {
                     <div className="flex items-center gap-3">
                       <FileText className="text-gray-400" size={20} />
                       <div>
-                        <p className="font-medium text-gray-900">
-                          {resource.fileName}
-                        </p>
+                        <p className="font-medium text-gray-900">{resource.fileName}</p>
                         <p className="text-xs text-gray-500">
-                          {(resource.fileSize / 1024).toFixed(2)} KB •{" "}
-                          {format(parseISO(resource.uploadedAt), "MMM d, yyyy")}
+                          {(resource.fileSize / 1024).toFixed(2)} KB • {format(parseISO(resource.uploadedAt), "MMM d, yyyy")}
                         </p>
                       </div>
                     </div>
                     <div className="flex gap-2">
-                      <a
-                        href={resource.fileUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                      >
-                        <Button variant="ghost" size="sm">
-                          View
-                        </Button>
-                      </a>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleDeleteResource(resource.id)}
-                      >
+                      <Button variant="ghost" size="sm" onClick={() => handleDownload(resource)}>
+                        <Download size={16} className="mr-2" />
+                        View
+                      </Button>
+                      <Button variant="ghost" size="sm" onClick={() => handleDeleteResource(resource.id)}>
                         <Trash2 size={16} />
                       </Button>
                     </div>
@@ -431,4 +478,3 @@ export default function ScheduleDetailPage() {
     </AppLayout>
   );
 }
-
