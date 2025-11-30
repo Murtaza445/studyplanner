@@ -25,7 +25,18 @@ jobs:
 
       - name: npm install, build, and test
         run: |
-          npm install
+          # use CI-friendly reproducible install
+          npm ci
+
+          # Ensure the correct lightningcss native binary exists for this runner (Ubuntu → gnu)
+          # Option A: try a rebuild first (safe)
+          npm rebuild lightningcss || true
+
+          # Option B: if rebuild didn't help, install the platform-specific binary package
+          # (This will succeed without committing anything to your repo; recommended if rebuild fails)
+          npm i -D --no-audit --no-fund lightningcss-linux-x64-gnu || true
+
+          # Build and test
           npm run build --if-present
           npm run test --if-present
 
