@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
@@ -15,17 +15,19 @@ export default function UploadPage() {
   const [isUploading, setIsUploading] = useState(false);
   const [selectedScheduleId, setSelectedScheduleId] = useState<string>("");
   const [schedules, setSchedules] = useState<any[]>([]);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     fetchSchedules();
     fetchAllResources();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const fetchSchedules = async () => {
     try {
       const response = await apiClient.get("/schedules");
-      setSchedules(response.data);
-      if (response.data.length > 0) {
+      setSchedules(response.data || []);
+      if (response.data && response.data.length > 0) {
         setSelectedScheduleId(response.data[0].id);
       }
     } catch (error) {
@@ -36,19 +38,26 @@ export default function UploadPage() {
   const fetchAllResources = async () => {
     try {
       setLoading(true);
-      // Fetch all schedules and aggregate resources
       const response = await apiClient.get("/schedules");
       const allResources: Resource[] = [];
-      response.data.forEach((schedule: any) => {
-        if (schedule.resources) {
+
+      (response.data || []).forEach((schedule: any) => {
+        if (Array.isArray(schedule.resources)) {
           schedule.resources.forEach((resource: Resource) => {
-            allResources.push({ ...resource, scheduleId: schedule.id, scheduleTitle: schedule.title });
+            allResources.push({
+              ...resource,
+              // attach schedule info for display
+              scheduleId: schedule.id,
+              scheduleTitle: schedule.title,
+            } as Resource);
           });
         }
       });
+
       setFiles(allResources);
     } catch (error) {
       console.error("Error fetching resources:", error);
+      setFiles([]);
     } finally {
       setLoading(false);
     }
@@ -56,6 +65,9 @@ export default function UploadPage() {
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    // reset input so same file can be selected again later
+    if (fileInputRef.current) fileInputRef.current.value = "";
+
     if (!file || !selectedScheduleId) {
       alert("Please select a schedule first");
       return;
@@ -63,7 +75,8 @@ export default function UploadPage() {
 
     try {
       setIsUploading(true);
-      // Get SAS URL
+
+      // 1. get SAS url from server
       const sasResponse = await apiClient.get("/upload/sas", {
         params: {
           fileName: file.name,
@@ -71,21 +84,27 @@ export default function UploadPage() {
         },
       });
 
-      // Upload to blob storage
+      // 2. upload to blob storage using SAS URL
+      if (!sasResponse?.data?.sasUrl) {
+        const serverMsg = sasResponse?.data?.error || JSON.stringify(sasResponse?.data || {});
+        throw new Error(`Invalid SAS response: ${serverMsg}`);
+      }
+
       const uploadResponse = await fetch(sasResponse.data.sasUrl, {
         method: "PUT",
         body: file,
         headers: {
           "x-ms-blob-type": "BlockBlob",
-          "Content-Type": file.type,
+          "Content-Type": file.type || "application/octet-stream",
         },
       });
 
       if (!uploadResponse.ok) {
-        throw new Error("Upload failed");
+        const text = await uploadResponse.text().catch(() => "(no body)");
+        throw new Error(`Upload failed: ${uploadResponse.status} ${text}`);
       }
 
-      // Save metadata
+      // 3. notify server to finish and save metadata
       await apiClient.post("/upload/finish", {
         scheduleId: selectedScheduleId,
         fileName: file.name,
@@ -96,18 +115,94 @@ export default function UploadPage() {
 
       await fetchAllResources();
       alert("File uploaded successfully!");
-    } catch (error) {
+    } catch (error: any) {
+      // Try to extract as much useful info as possible for debugging
       console.error("Error uploading file:", error);
-      alert("Failed to upload file");
+
+      let userMessage = "Failed to upload file";
+
+      // Axios error with server response
+      if (error?.response?.data) {
+        try {
+          const data = error.response.data;
+          userMessage = data.error || data.message || JSON.stringify(data);
+        } catch (_) {
+          userMessage = String(error.message || userMessage);
+        }
+      } else if (error?.message) {
+        userMessage = error.message;
+      }
+
+      alert(`Failed to upload file: ${userMessage}`);
     } finally {
       setIsUploading(false);
     }
   };
 
+  const openFilePicker = () => {
+    if (!selectedScheduleId) {
+      alert("Please select a schedule first");
+      return;
+    }
+    if (isUploading) return;
+    fileInputRef.current?.click();
+  };
+
   const handleDelete = async (resourceId: string) => {
     if (!confirm("Are you sure you want to delete this file?")) return;
-    // Implement delete resource API call
-    await fetchAllResources();
+
+    try {
+      console.log("Deleting resource with id:", resourceId);
+      // try deleting resource via API - adjust endpoint if your API uses another path
+      const resp = await apiClient.delete(`/resources/${resourceId}`);
+      console.log("Delete response:", resp?.data);
+      await fetchAllResources();
+      alert("File deleted");
+    } catch (error) {
+      // Provide detailed error info for debugging
+      console.error("Error deleting file:", error);
+      // still refresh list in case the server state changed
+      await fetchAllResources();
+
+      // Try to extract axios response details
+      const anyErr = error as any;
+      let msg = "Failed to delete file";
+      if (anyErr?.response) {
+        const status = anyErr.response.status;
+        const data = anyErr.response.data;
+        msg = `Delete failed: ${status} - ${JSON.stringify(data)}`;
+      } else if (anyErr?.message) {
+        msg = anyErr.message;
+      }
+
+      alert(msg);
+    }
+  };
+
+  const handleDownload = async (file: any) => {
+    try {
+      // Request a temporary read-only SAS from the server
+      const resp = await apiClient.get("/upload/read-sas", {
+        params: {
+          fileUrl: file.fileUrl,
+          scheduleId: file.scheduleId,
+        },
+      });
+
+      if (!resp?.data?.sasUrl) {
+        alert("Failed to get download URL");
+        return;
+      }
+
+      // Open in new tab
+      window.open(resp.data.sasUrl, "_blank");
+    } catch (error: any) {
+      console.error("Error getting read SAS:", error);
+      let msg = "Failed to get download URL";
+      if (error?.response?.data?.error) msg = error.response.data.error;
+      else if (error?.message) msg = error.message;
+      alert(msg);
+    }
   };
 
   if (loading) {
@@ -125,9 +220,7 @@ export default function UploadPage() {
       <div className="space-y-6">
         <div>
           <h1 className="text-3xl font-bold text-gray-900">Upload Resources</h1>
-          <p className="text-gray-600 mt-1">
-            Upload study materials and resources
-          </p>
+          <p className="text-gray-600 mt-1">Upload study materials and resources</p>
         </div>
 
         <Card>
@@ -153,33 +246,34 @@ export default function UploadPage() {
                   ))}
                 </select>
               </div>
+
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Choose File
                 </label>
-                <label className="cursor-pointer inline-block">
-                  <input
-                    type="file"
-                    className="hidden"
-                    onChange={handleFileUpload}
-                    disabled={isUploading || !selectedScheduleId}
-                  />
-                  <span className="inline-block">
-                    <Button
-                      variant="primary"
-                      type="button"
-                      isLoading={isUploading}
-                      disabled={!selectedScheduleId}
-                    >
-                      <Upload size={18} className="mr-2" />
-                      {isUploading ? "Uploading..." : "Upload File"}
-                    </Button>
-                  </span>
-                </label>
+
+                {/* Hidden input triggered by the button */}
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  className="hidden"
+                  onChange={handleFileUpload}
+                  disabled={isUploading || !selectedScheduleId}
+                />
+
+                <Button
+                  variant="primary"
+                  type="button"
+                  isLoading={isUploading}
+                  disabled={!selectedScheduleId || isUploading}
+                  onClick={openFilePicker}
+                >
+                  <Upload size={18} className="mr-2" />
+                  {isUploading ? "Uploading..." : "Upload File"}
+                </Button>
+
                 {!selectedScheduleId && (
-                  <p className="mt-2 text-sm text-gray-500">
-                    Please select a schedule first
-                  </p>
+                  <p className="mt-2 text-sm text-gray-500">Please select a schedule first</p>
                 )}
               </div>
             </div>
@@ -206,42 +300,35 @@ export default function UploadPage() {
                     <div className="flex items-center gap-4 flex-1">
                       <FileText className="text-gray-400" size={24} />
                       <div className="flex-1">
-                        <p className="font-medium text-gray-900">
-                          {file.fileName}
-                        </p>
+                        <p className="font-medium text-gray-900">{file.fileName}</p>
                         <div className="flex items-center gap-4 mt-1 text-sm text-gray-500">
                           <span>{(file.fileSize / 1024).toFixed(2)} KB</span>
                           <span>•</span>
                           <span>
-                            {format(parseISO(file.uploadedAt), "MMM d, yyyy")}
+                            {file.uploadedAt
+                              ? format(parseISO(file.uploadedAt), "MMM d, yyyy")
+                              : "—"}
                           </span>
                           {file.scheduleTitle && (
                             <>
                               <span>•</span>
-                              <span className="text-blue-600">
-                                {file.scheduleTitle}
-                              </span>
+                              <span className="text-blue-600">{file.scheduleTitle}</span>
                             </>
                           )}
                         </div>
                       </div>
                     </div>
+
                     <div className="flex gap-2">
-                      <a
-                        href={file.fileUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                      >
-                        <Button variant="ghost" size="sm">
-                          <Download size={16} className="mr-2" />
-                          Download
-                        </Button>
-                      </a>
                       <Button
                         variant="ghost"
                         size="sm"
-                        onClick={() => handleDelete(file.id)}
+                        onClick={() => handleDownload(file)}
                       >
+                        <Download size={16} className="mr-2" />
+                        Download
+                      </Button>
+                      <Button variant="ghost" size="sm" onClick={() => handleDelete(file.id)}>
                         <Trash2 size={16} />
                       </Button>
                     </div>
@@ -255,4 +342,3 @@ export default function UploadPage() {
     </AppLayout>
   );
 }
-

@@ -40,8 +40,8 @@ providers.push(
 if (hasAzureConfig) {
   providers.unshift(
     AzureADProvider({
-      clientId: process.env.AZURE_AD_CLIENT_ID,
-      clientSecret: process.env.AZURE_AD_CLIENT_SECRET,
+      clientId: process.env.AZURE_AD_CLIENT_ID ?? "",
+      clientSecret: process.env.AZURE_AD_CLIENT_SECRET ?? "",
       tenantId: "common",
       authorization: {
         params: {
@@ -60,7 +60,7 @@ export const authOptions: NextAuthOptions = {
       if (account?.provider === "azure-ad") {
         token.accessToken = account.access_token;
         if (profile) {
-          token.id = profile.sub || profile.oid;
+          token.id = profile.sub;
         }
       }
       // Handle credentials (demo) login

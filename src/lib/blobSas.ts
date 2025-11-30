@@ -4,7 +4,11 @@ const accountName = process.env.AZURE_STORAGE_ACCOUNT_NAME || "";
 const accountKey = process.env.AZURE_STORAGE_ACCOUNT_KEY || "";
 const containerName = process.env.AZURE_STORAGE_CONTAINER_NAME || "study-resources";
 
-export function generateSASUrl(blobName: string, expiresInMinutes: number = 60): string {
+export function generateSASUrl(
+  blobName: string,
+  expiresInMinutes: number = 60,
+  permissions: string = "rw"
+): string {
   if (!accountName || !accountKey) {
     throw new Error("Azure Storage credentials not configured");
   }
@@ -13,7 +17,7 @@ export function generateSASUrl(blobName: string, expiresInMinutes: number = 60):
   const sasOptions = {
     containerName,
     blobName,
-    permissions: BlobSASPermissions.parse("rw"), // Read and write permissions
+    permissions: BlobSASPermissions.parse(permissions),
     startsOn: new Date(),
     expiresOn: new Date(new Date().valueOf() + expiresInMinutes * 60 * 1000),
   };
