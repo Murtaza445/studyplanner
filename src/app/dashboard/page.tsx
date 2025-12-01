@@ -43,6 +43,16 @@ export default function DashboardPage() {
         );
       });
 
+      const current = allSchedules.filter((schedule: Schedule) => {
+        const startDate = parseISO(schedule.startDate);
+        const endDate = parseISO(schedule.endDate);
+        const now = new Date();
+        return (
+          isWithinInterval(now, { start: startDate, end: endDate }) &&
+          schedule.status === "pending"
+        );
+      });
+
       const completed = allSchedules.filter(
         (schedule: Schedule) => schedule.status === "completed"
       );
@@ -73,6 +83,20 @@ export default function DashboardPage() {
       return parseISO(a.startDate).getTime() - parseISO(b.startDate).getTime();
     })
     .slice(0, 5);
+
+  const ongoingSchedules = schedules
+    .filter((schedule) => {
+      const startDate = parseISO(schedule.startDate);
+      const endDate = parseISO(schedule.endDate);
+      const now = new Date();
+      return (
+        isWithinInterval(now, { start: startDate, end: endDate }) &&
+        schedule.status === "pending"
+      );
+    })
+    .sort((a, b) => {
+      return parseISO(a.startDate).getTime() - parseISO(b.startDate).getTime();
+    });
 
   if (loading) {
     return (
@@ -167,7 +191,7 @@ export default function DashboardPage() {
                 <p>No upcoming schedules in the next 7 days</p>
                 <Link href="/schedules/new">
                   <Button variant="primary" className="mt-4">
-                    Create Your First Schedule
+                    Create A Schedule
                   </Button>
                 </Link>
               </div>
@@ -208,6 +232,56 @@ export default function DashboardPage() {
             )}
           </CardContent>
         </Card>
+
+          {/* // Add this CardContent for ongoing schedules below */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Ongoing Schedules</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {ongoingSchedules.length === 0 ? (
+              <div className="text-center py-8 text-gray-500">
+                <Calendar size={48} className="mx-auto mb-4 text-gray-300" />
+                <p>No ongoing schedules</p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {ongoingSchedules.map((schedule) => (
+                  <Link
+                    key={schedule.id}
+                    href={`/schedules/${schedule.id}`}
+                    className="block p-4 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <h3 className="font-semibold text-gray-900">
+                          {schedule.title}
+                        </h3>
+                        <p className="text-sm text-gray-600 mt-1">
+                          {schedule.description}
+                        </p>
+                        <p className="text-xs text-gray-500 mt-2">
+                          {format(parseISO(schedule.startDate), "MMM d, yyyy")} -{" "}
+                          {format(parseISO(schedule.endDate), "MMM d, yyyy")}
+                        </p>
+                      </div>
+                      <span
+                        className={`px-3 py-1 rounded-full text-xs font-medium ${
+                          schedule.status === "completed"
+                            ? "bg-green-100 text-green-800"
+                            : "bg-yellow-100 text-yellow-800"
+                        }`}
+                      >
+                        {schedule.status}
+                      </span>
+                    </div>
+                  </Link>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
       </div>
     </AppLayout>
   );
