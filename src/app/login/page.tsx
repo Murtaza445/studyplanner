@@ -5,6 +5,7 @@ import { signIn, useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 import { Button } from "@/components/ui/Button";
+import Image from "next/image";
 
 export default function LoginPage() {
   const { data: session, status } = useSession();
@@ -115,33 +116,11 @@ export default function LoginPage() {
               className="w-full mb-2"
               disabled={azureAvailable === false}
             >
-              <svg
-                className="w-5 h-5 mr-2"
-                viewBox="0 0 23 23"
-                fill="none"
-                xmlns="http://www.w3.org/2000/svg"
-              >
-                <path
-                  d="M11.5 0C5.149 0 0 5.149 0 11.5C0 17.851 5.149 23 11.5 23C17.851 23 23 17.851 23 11.5C23 5.149 17.851 0 11.5 0Z"
-                  fill="#F25022"
-                />
-                <path
-                  d="M11.5 0C5.149 0 0 5.149 0 11.5C0 17.851 5.149 23 11.5 23C17.851 23 23 17.851 23 11.5C23 5.149 17.851 0 11.5 0Z"
-                  fill="#7FBA00"
-                />
-                <path
-                  d="M11.5 0C5.149 0 0 5.149 0 11.5C0 17.851 5.149 23 11.5 23C17.851 23 23 17.851 23 11.5C23 5.149 17.851 0 11.5 0Z"
-                  fill="#00A4EF"
-                />
-                <path
-                  d="M11.5 0C5.149 0 0 5.149 0 11.5C0 17.851 5.149 23 11.5 23C17.851 23 23 17.851 23 11.5C23 5.149 17.851 0 11.5 0Z"
-                  fill="#FFB900"
-                />
-              </svg>
+              <Image src="/microsoft.svg" alt="Microsoft" width={20} height={20} />
               Sign in with Microsoft
             </Button>
             {azureAvailable === null && (
-              <p className="text-xs text-gray-500">Checking Microsoft sign-in availability...</p>
+              <p className="text-xs text-gray-500 gap-4">Checking Microsoft sign-in availability...</p>
             )}
             {azureAvailable === false && (
               <p className="text-xs text-red-600">Microsoft sign-in not configured locally. See README for setup instructions.</p>

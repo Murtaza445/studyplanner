@@ -26,13 +26,15 @@ export default function ProfilePage() {
             <div className="space-y-6">
               <div className="flex items-center gap-6">
                 {session.user.image && (
-                  <Image
-                    src={session.user.image}
-                    alt={session.user.name || "User"}
-                    width={100}
-                    height={100}
-                    className="rounded-full"
-                  />
+                  <div className="w-24 h-24 rounded-full overflow-hidden avatar-ring">
+                    <Image
+                      src={session.user.image}
+                      alt={session.user.name || "User"}
+                      width={96}
+                      height={96}
+                      className="rounded-full"
+                    />
+                  </div>
                 )}
                 <div>
                   <h2 className="text-2xl font-bold text-gray-900">

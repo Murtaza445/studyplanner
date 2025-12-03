@@ -14,7 +14,7 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
     <ProtectedRoute>
       <div className="flex min-h-screen bg-gray-50">
         <Sidebar />
-        <div className="flex-1 ml-64">
+        <div className="flex-1 ml-72">
           <Navbar />
           <main className="p-6">{children}</main>
         </div>
